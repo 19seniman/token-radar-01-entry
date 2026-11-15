@@ -563,3 +563,43 @@ export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null
 export function dataScript(radar: RadarData): string {
   return `window.RADAR=${JSON.stringify(radar)};\n`;
 }
+
+/**
+ * The dashboard's data, compacted. The dossier shows every source file while the dashboard fits in
+ * 65,536 bytes, so 200 rows times six to eight steps cannot travel as prose: each step is stored as a
+ * template plus the two values that vary (protocol name, chain), and the page fills them in.
+ */
+export function boardScript(board: BoardRow[], asOf: string, watchlist: string[]): string {
+  const onWatch = new Set(watchlist);
+  const tpl: string[] = [];
+  const ids = new Map<string, number>();
+  const pack = (text: string, name: string, chain: string): number => {
+    let t = text.split(name).join('\u0000N\u0000');
+    if (chain !== '') t = t.split(chain).join('\u0000C\u0000');
+    const seen = ids.get(t);
+    if (seen !== undefined) return seen;
+    ids.set(t, tpl.length);
+    tpl.push(t);
+    return tpl.length - 1;
+  };
+
+  const rows = board.map((r) => {
+    const chain = r.chains[0] ?? '';
+    const steps = r.farm_steps.map((s) => pack(typeof s === 'string' ? s : String(s), r.name, chain));
+    return [
+      r.slug,
+      r.name,
+      r.rank,
+      r.implied_value_usd,
+      r.category ?? '',
+      r.chains,
+      r.tvl_usd,
+      r.change_7d,
+      r.gecko_id === null && r.symbol === null ? 0 : 1,
+      onWatch.has(r.slug) ? 1 : 0,
+      steps,
+    ];
+  });
+
+  return `window.BOARD=${JSON.stringify({ as_of: asOf, model: MODEL_VERSION, tpl, rows })};\n`;
+}

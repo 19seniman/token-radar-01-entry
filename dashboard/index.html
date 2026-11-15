@@ -3,12 +3,51 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Radar: pre-token protocols ranked by implied value</title>
-<link rel="stylesheet" href="app.css">
+<title>Token launch radar — protocols still waiting on a token</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<a class="skip" href="#board">Skip to the board</a>
-<main id="board" tabindex="-1" aria-busy="true"></main>
+<header>
+  <div class="brand">
+    <h1>Token launch radar</h1>
+    <p id="sub">Reading the frozen DefiLlama snapshot. Every row is a protocol that records no token.</p>
+  </div>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+  <section class="controls">
+    <input id="q" type="search" placeholder="Search protocol, category or chain" autocomplete="off">
+    <select id="cat"><option value="">All categories</option></select>
+    <select id="chain"><option value="">All chains</option></select>
+    <label class="chk"><input id="wl" type="checkbox"> Watchlist only</label>
+    <span class="count" id="count"></span>
+  </section>
+
+  <div class="split">
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>Protocol</th>
+            <th>Category</th>
+            <th>Chains</th>
+            <th class="num">TVL</th>
+            <th class="num">7d</th>
+            <th class="num">Implied value</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <aside id="detail">
+      <p class="hint">Pick a row to see what the protocol is, why it ranks where it does, and the steps to farm it.</p>
+    </aside>
+  </div>
+</main>
+
 <script src="../data.js"></script>
 <script src="app.js"></script>
 </body>
