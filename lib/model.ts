@@ -64,7 +64,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-3';
+export const MODEL_VERSION = 'radar-4';
 
 /**
  * A token's fully diluted value is not a flat multiple of TVL: a curator earning a fee on assets it
@@ -379,6 +379,38 @@ function holdDaysFor(age: number | null): number {
   return 30;
 }
 
+/** What one transaction costs on each chain, at ordinary congestion. Estimates, not quotes. */
+export const CHAIN_GAS: Record<string, number> = {
+  Ethereum: 8,
+  Arbitrum: 0.15,
+  Base: 0.12,
+  Optimism: 0.12,
+  'OP Mainnet': 0.12,
+  Polygon: 0.05,
+  BNB: 0.18,
+  Solana: 0.01,
+  Tron: 0.6,
+  Avalanche: 0.20,
+  Sonic: 0.02,
+  Berachain: 0.05,
+  Monad: 0.02,
+  Ink: 0.03,
+  Unichain: 0.03,
+};
+
+/** Gas for one transaction on the chain the plan runs on, when the chain is not in the table. */
+export function gasFor(chain: string): number {
+  return CHAIN_GAS[chain] ?? 1;
+}
+
+/** The protocol's own size and trend, in the words the action can carry. */
+function shapeOf(p: SnapshotProtocol): string {
+  const size = p.tvl_usd >= 1e9 ? `$${(p.tvl_usd / 1e9).toFixed(2)}B` : `$${Math.round(p.tvl_usd / 1e6)}M`;
+  if (p.change_7d === null) return `holding ${size} of TVL`;
+  const dir = p.change_7d >= 0 ? 'up' : 'down';
+  return `holding ${size} of TVL, ${dir} ${Math.abs(p.change_7d).toFixed(1)}% over seven days`;
+}
+
 /** The category's one action, in the words a farmer can follow. */
 function actionFor(p: SnapshotProtocol, capital: number, chain: string): string {
   const c = (p.category ?? '').toLowerCase();
@@ -389,9 +421,9 @@ function actionFor(p: SnapshotProtocol, capital: number, chain: string): string 
   if (c.includes('staking') || c.includes('restak')) return `Stake $${capital} of the chain's staking asset through ${name} and keep the receipt.`;
   if (c.includes('perpetual') || c.includes('derivative')) return `Deposit $${capital} of USDC as margin on ${name} and open one small hedge.`;
   if (c.includes('prediction')) return `Fund $${capital} and place one market position on ${name}.`;
-  if (c.includes('curator') || c.includes('allocator')) return `Deposit $${capital} into a ${name} vault on ${chain} and keep the shares.`;
+  if (c.includes('curator') || c.includes('allocator')) return `Deposit $${capital} of USDC into a ${name} vault on ${chain}, ${shapeOf(p)}, and keep the vault shares in the wallet that farmed them.`;
   if (c.includes('stable')) return `Mint or deposit $${capital} of the stable asset through ${name} on ${chain}.`;
-  if (c.includes('rwa')) return `Mint $${capital} of the protocol's yield asset on ${chain} and hold it.`;
+  if (c.includes('rwa')) return `Mint or buy $${capital} of ${name}'s yield asset on ${chain}, ${shapeOf(p)}, and check who holds the underlying before you do.`;
   if (c.includes('insurance')) return `Buy $${capital} of cover from ${name} on ${chain} and keep the policy.`;
   return `Deposit $${capital} of USDC into ${name} on ${chain} and keep the position open.`;
 }
@@ -407,18 +439,18 @@ export function farmSteps(p: SnapshotProtocol, age: number | null): FarmStep[] {
   const action = actionFor(p, capital, chain);
   return [
     {
-      text: `Use a fresh wallet that holds only the funds you plan to farm, and keep its seed phrase offline.`,
-      cost: 'under $3 of gas for the first transaction',
-      time: '5 minutes',
+      text: `Open the app for ${p.slug} on ${chain} and confirm the address the protocol publishes matches the one you are about to sign against; a farm that starts on the wrong contract pays for nothing.`,
+      cost: `about $${gasFor(chain).toFixed(2)} of gas to check, and nothing to look`,
+      time: '10 minutes',
     },
     {
       text: action,
-      cost: `$${capital} of capital and about $${capital >= 150 ? 8 : 4} of gas`,
+      cost: `$${capital} of capital and about $${(gasFor(chain) * 2).toFixed(2)} of gas on ${chain}`,
       time: '15 minutes to set up',
     },
     {
-      text: `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote.`,
-      cost: 'about $2 of gas a week',
+      text: `Make one qualifying action each week, such as a deposit, a borrow, a swap or a vote, and vary it: a snapshot that counts distinct actions rewards a real position over a repeated one.`,
+      cost: `about $${(gasFor(chain) * 3).toFixed(2)} of gas a week on ${chain}`,
       time: '10 minutes a week',
     },
     {
