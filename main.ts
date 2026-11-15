@@ -45,6 +45,11 @@ const out = arg('output', process.env.MAKEFUN_OUTPUT_DIR ?? '/output');
 const snapshot = parseSnapshot(readFileSync(inputFile, 'utf8'));
 const { board, radar } = buildRadar(snapshot);
 const issue = boardIssue(board, snapshot);
+if (board.length < 100) {
+  // the gate refuses a board under 100 rows outright; fail here, where the message is readable
+  process.stderr.write(`token radar: the model produced ${board.length} rows, under the 100 the gate requires\n`);
+  process.exit(1);
+}
 if (issue !== null) {
   process.stderr.write(`token radar: the model wrote a board the gate refuses: ${issue}\n`);
   process.exit(1);
