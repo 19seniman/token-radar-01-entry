@@ -64,7 +64,7 @@ export const MODEL: ModelConstants = {
 };
 
 /** The model's version label: the dashboard names it and the rules quote it. */
-export const MODEL_VERSION = 'radar-2';
+export const MODEL_VERSION = 'radar-3';
 
 /**
  * A token's fully diluted value is not a flat multiple of TVL: a curator earning a fee on assets it
@@ -103,6 +103,53 @@ export const CHAIN_PREMIUM: Record<string, number> = {
 };
 
 export const DEFAULT_CATEGORY_MULTIPLE = 0.20;
+
+/** How many observations a category needs before its measured multiple outweighs the prior. */
+export const SHRINK_K = 8;
+
+/** Below three launched tokens a category has no median worth trusting: one outlier is not evidence. */
+export const MIN_OBSERVATIONS = 3;
+
+export interface CategoryStat {
+  n: number;
+  median: number;
+}
+
+/**
+ * The snapshot carries the answer to its own question. For every protocol that already trades, market
+ * cap over TVL is the multiple a launched token actually reached; the median by category is an
+ * observation, not an assumption. Ratios below 0.002 or above 50 are dropped as broken rows rather
+ * than treated as data.
+ */
+export function categoryStats(protocols: SnapshotProtocol[]): Map<string, CategoryStat> {
+  const seen = new Map<string, number[]>();
+  for (const p of protocols) {
+    if (p.mcap_usd === null || p.tvl_usd <= 0) continue;
+    const ratio = p.mcap_usd / p.tvl_usd;
+    if (!(ratio > 0.002 && ratio < 50)) continue;
+    const list = seen.get(p.category ?? '') ?? [];
+    list.push(ratio);
+    seen.set(p.category ?? '', list);
+  }
+  const out = new Map<string, CategoryStat>();
+  for (const [category, list] of seen) {
+    list.sort((a, b) => a - b);
+    const mid = list.length % 2 === 1 ? list[(list.length - 1) / 2]! : (list[list.length / 2 - 1]! + list[list.length / 2]!) / 2;
+    out.set(category, { n: list.length, median: mid });
+  }
+  return out;
+}
+
+/**
+ * A measured median with five observations is not worth more than the prior it is meant to correct,
+ * so the two are averaged by weight: a category with n rows moves the prior by n/(n+6).
+ */
+export function multipleFor(category: string, stats: Map<string, CategoryStat>): number {
+  const prior = CATEGORY_MULTIPLE[category] ?? DEFAULT_CATEGORY_MULTIPLE;
+  const stat = stats.get(category);
+  if (stat === undefined || stat.n < MIN_OBSERVATIONS) return prior;
+  return (stat.n * stat.median + SHRINK_K * prior) / (stat.n + SHRINK_K);
+}
 
 /** How many pre-token protocols below the watchlist floor the early radar carries, by TVL. */
 export const EARLY_ROWS = 160;
@@ -211,14 +258,14 @@ export function ageDays(asOf: string, listedAt: string | null): number | null {
 }
 
 /** The three multipliers and the implied value one protocol gets under `model`. */
-export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: ModelConstants): { implied: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
+export function impliedValue(protocol: SnapshotProtocol, asOf: string, model: ModelConstants, stats: Map<string, CategoryStat> = new Map()): { implied: number; growthPct: number; growthMult: number; maturityMult: number; age: number | null } {
   const age = ageDays(asOf, protocol.listed_at);
   const rawGrowth = finite(protocol.change_7d, 0);
   const growthPct = Math.min(model.growth_cap, Math.max(model.growth_floor, rawGrowth));
   const growthMult = 1 + (growthPct / 100) * model.growth_weight;
   const ageForModel = age ?? model.unknown_age_days;
   const maturityMult = model.maturity_floor + (Math.min(Math.max(ageForModel, 0), model.maturity_days) / model.maturity_days) * model.maturity_range;
-  const categoryMultiple = CATEGORY_MULTIPLE[protocol.category ?? ''] ?? DEFAULT_CATEGORY_MULTIPLE;
+  const categoryMultiple = multipleFor(protocol.category ?? '', stats);
   const chainPremium = Math.max(0, ...protocol.chains.map((c) => CHAIN_PREMIUM[c] ?? 0));
   const base = protocol.tvl_usd * categoryMultiple * (1 + chainPremium);
   const implied = Math.max(1, Math.round(base * growthMult * maturityMult));
@@ -269,8 +316,9 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     .slice(0, EARLY_ROWS);
   for (const p of early) chosen.set(p.slug, p);
 
+  const stats = categoryStats(snapshot.protocols);
   const scored = [...chosen.values()].map((p) => {
-    const { implied, growthPct, growthMult, maturityMult, age } = impliedValue(p, snapshot.as_of, model);
+    const { implied, growthPct, growthMult, maturityMult, age } = impliedValue(p, snapshot.as_of, model, stats);
     return { p, implied, growthPct, growthMult, maturityMult, age };
   });
   scored.sort((a, b) => b.implied - a.implied || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0));
